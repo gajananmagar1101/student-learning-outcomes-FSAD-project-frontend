@@ -1,0 +1,17 @@
+{
+  "name": "KL University Student Learning Platform",
+  "short_name": "KL U Platform",
+  "description": "KL University student learning, assessments, quizzes, and performance platform.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#312e81",
+  "icons": [
+    {
+      "src": "/kl-logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

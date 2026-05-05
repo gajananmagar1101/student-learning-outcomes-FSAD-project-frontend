@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/useAuthStore'
 import { useQuizStore } from '@/store/useQuizStore'
 import { studentAPI } from '@/lib/services'
 import type { StudentPerformance } from '@/types'
+import { normalizeAcademicYear } from '@/lib/btech'
 import { BookOpen, ClipboardList, FileCheck, GraduationCap, Star, TrendingUp, Trophy, ExternalLink } from 'lucide-react'
 
 export function StudentPerformancePage() {
@@ -96,12 +97,59 @@ export function StudentPerformancePage() {
     [attempts, quizzes, studentId]
   )
 
+  const overduePendingAssignments = useMemo(
+    () => studentAssignments.filter((assignment) => assignment.status === 'pending' && new Date(assignment.deadline).getTime() <= Date.now()),
+    [studentAssignments]
+  )
+
+  const missedQuizzes = useMemo(() => {
+    const attemptedQuizIds = new Set(
+      attempts
+        .filter((attempt) => studentId && attempt.studentId === studentId)
+        .map((attempt) => attempt.quizId)
+    )
+
+    return quizzes
+      .filter((quiz) => Boolean(quiz.deadlineAt) && new Date(quiz.deadlineAt as string).getTime() <= Date.now())
+      .filter((quiz) => normalizeAcademicYear(quiz.className) === normalizeAcademicYear(user?.grade))
+      .filter((quiz) => !attemptedQuizIds.has(quiz.id))
+      .map((quiz) => ({
+        submissionId: `missed-quiz-${quiz.id}`,
+        assignmentId: quiz.id,
+        assignmentTitle: `[Quiz] ${quiz.title}`,
+        subject: quiz.subject,
+        marks: 0,
+        totalMarks: quiz.totalPoints || 1,
+        percentage: 0,
+        gradedAt: quiz.deadlineAt ?? new Date().toISOString(),
+      }))
+  }, [attempts, quizzes, studentId, user?.grade])
+
+  const overallItems = useMemo(
+    () => [
+      ...gradedAssignments,
+      ...gradedQuizAttempts,
+      ...overduePendingAssignments.map((assignment) => ({
+        submissionId: `missed-assignment-${assignment.id}`,
+        assignmentId: assignment.id,
+        assignmentTitle: assignment.title,
+        subject: assignment.subject,
+        marks: 0,
+        totalMarks: assignment.totalMarks || 100,
+        percentage: 0,
+        gradedAt: assignment.deadline,
+      })),
+      ...missedQuizzes,
+    ],
+    [gradedAssignments, gradedQuizAttempts, missedQuizzes, overduePendingAssignments]
+  )
+
   const allGradedItems = useMemo(
     () => [...gradedAssignments, ...gradedQuizAttempts].sort((a, b) => new Date(b.gradedAt).getTime() - new Date(a.gradedAt).getTime()),
     [gradedAssignments, gradedQuizAttempts]
   )
 
-  const gradedPercentages = allGradedItems.map((item) => item.percentage)
+  const gradedPercentages = overallItems.map((item) => item.percentage)
   const avgPercentage = gradedPercentages.length
     ? Math.round(gradedPercentages.reduce((sum, value) => sum + value, 0) / gradedPercentages.length)
     : 0
@@ -111,16 +159,7 @@ export function StudentPerformancePage() {
   const subjectProgress = useMemo(() => {
     const bySubject = new Map<string, { total: number; count: number; pendingAssignments: number }>()
 
-    gradedAssignments.forEach((item) => {
-      const prev = bySubject.get(item.subject) ?? { total: 0, count: 0, pendingAssignments: 0 }
-      bySubject.set(item.subject, {
-        total: prev.total + item.percentage,
-        count: prev.count + 1,
-        pendingAssignments: prev.pendingAssignments,
-      })
-    })
-
-    gradedQuizAttempts.forEach((item) => {
+    overallItems.forEach((item) => {
       const prev = bySubject.get(item.subject) ?? { total: 0, count: 0, pendingAssignments: 0 }
       bySubject.set(item.subject, {
         total: prev.total + item.percentage,
@@ -153,17 +192,17 @@ export function StudentPerformancePage() {
         }
       })
       .sort((left, right) => right.progress - left.progress || left.subject.localeCompare(right.subject))
-  }, [gradedAssignments, gradedQuizAttempts, studentAssignments])
+  }, [overallItems, studentAssignments])
 
-  const displayPerformance = performance ?? {
+  const displayPerformance = {
     avgScore: 0,
     avgPercentage,
     bestScore: 0,
     bestPercentage,
-    overallGrade: avgPercentage >= 90 ? 'A' : avgPercentage >= 80 ? 'B' : avgPercentage >= 70 ? 'C' : avgPercentage >= 60 ? 'D' : allGradedItems.length ? 'F' : 'N/A',
+    overallGrade: avgPercentage >= 90 ? 'A' : avgPercentage >= 80 ? 'B' : avgPercentage >= 70 ? 'C' : avgPercentage >= 60 ? 'D' : overallItems.length ? 'F' : 'N/A',
     progressPercent: avgPercentage,
     totalSubmissions: allGradedItems.length,
-    scoreHistory: allGradedItems,
+    scoreHistory: performance?.scoreHistory ?? allGradedItems,
   }
 
   const historySections = [

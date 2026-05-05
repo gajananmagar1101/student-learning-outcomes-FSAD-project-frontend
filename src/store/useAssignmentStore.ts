@@ -39,6 +39,10 @@ const normalizeStudentAssignment = (assignment: StudentAssignmentItem & { _id?: 
   submission: assignment.submission ? normalizeSubmission(assignment.submission) : null,
 })
 
+const normalizeAssignmentSubmission = (submission: AssignmentSubmission & { _id?: string; id?: string }): AssignmentSubmission => (
+  normalizeSubmission(submission)
+)
+
 export const useAssignmentStore = create<AssignmentStoreState>((set, get) => ({
   adminAssignments: [],
   studentAssignments: [],
@@ -115,13 +119,39 @@ export const useAssignmentStore = create<AssignmentStoreState>((set, get) => ({
   },
 
   submitAssignment: async (data) => {
-    await submissionAPI.create(data)
-    await get().fetchStudentAssignments()
+    const res = await submissionAPI.create(data)
+    const submission = normalizeAssignmentSubmission(res.data.submission)
+    set((state) => ({
+      studentAssignments: state.studentAssignments.map((assignment) => (
+        assignment.id === data.assignmentId
+          ? {
+              ...assignment,
+              status: submission.status,
+              canSubmit: false,
+              canEdit: !assignment.submissionClosed,
+              submission,
+            }
+          : assignment
+      )),
+    }))
   },
 
   updateSubmission: async (id, data) => {
-    await submissionAPI.update(id, data)
-    await get().fetchStudentAssignments()
+    const res = await submissionAPI.update(id, data)
+    const submission = normalizeAssignmentSubmission(res.data.submission)
+    set((state) => ({
+      studentAssignments: state.studentAssignments.map((assignment) => (
+        assignment.id === data.assignmentId
+          ? {
+              ...assignment,
+              status: submission.status,
+              canSubmit: false,
+              canEdit: !assignment.submissionClosed,
+              submission,
+            }
+          : assignment
+      )),
+    }))
   },
 
   gradeSubmission: async (id, marks) => {

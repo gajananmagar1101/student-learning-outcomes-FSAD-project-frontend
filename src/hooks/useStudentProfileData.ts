@@ -25,6 +25,7 @@ export interface StudentAssignmentRow {
 
 export interface StudentQuizRow {
   id: string
+  quizId: string
   title: string
   subject: string
   submittedAt: string
@@ -192,6 +193,7 @@ export function useStudentProfileData(studentId: string) {
           const percentage = Math.round((attempt.score / totalMarks) * 100)
           return {
             id: attempt.id,
+            quizId: attempt.quizId,
             title: quiz?.title ?? 'Quiz Attempt',
             subject: quiz?.subject ?? 'Quiz',
             submittedAt: attempt.submittedAt,
@@ -204,18 +206,46 @@ export function useStudentProfileData(studentId: string) {
     [attempts, quizzes, studentId]
   )
 
-  const combinedGradedRows = useMemo(
+  const overduePendingAssignmentRows = useMemo(
+    () => pendingAssignmentRows.filter((row) => new Date(row.deadline).getTime() <= Date.now()),
+    [pendingAssignmentRows]
+  )
+
+  const missedQuizRows = useMemo(() => {
+    if (!normalizedStudentGrade) return []
+
+    const attemptedQuizIds = new Set(quizRows.map((row) => row.quizId))
+    return quizzes
+      .filter((quiz) => normalizeAcademicYear(quiz.className) === normalizedStudentGrade)
+      .filter((quiz) => Boolean(quiz.deadlineAt) && new Date(quiz.deadlineAt as string).getTime() <= Date.now())
+      .filter((quiz) => !attemptedQuizIds.has(quiz.id))
+      .map((quiz) => ({
+        id: `missed-${quiz.id}`,
+        quizId: quiz.id,
+        title: quiz.title,
+        subject: quiz.subject,
+        submittedAt: quiz.deadlineAt ?? new Date().toISOString(),
+        totalMarks: quiz.totalPoints || 1,
+        marks: 0,
+        percentage: 0,
+        grade: 'F',
+      }))
+  }, [normalizedStudentGrade, quizRows, quizzes])
+
+  const overallRows = useMemo(
     () => [
       ...submittedAssignmentRows
         .filter((row) => row.percentage != null)
         .map((row) => ({ subject: row.subject, percentage: row.percentage as number })),
       ...quizRows.map((row) => ({ subject: row.subject, percentage: row.percentage })),
+      ...overduePendingAssignmentRows.map((row) => ({ subject: row.subject, percentage: 0 })),
+      ...missedQuizRows.map((row) => ({ subject: row.subject, percentage: 0 })),
     ],
-    [quizRows, submittedAssignmentRows]
+    [missedQuizRows, overduePendingAssignmentRows, quizRows, submittedAssignmentRows]
   )
 
   const summary = useMemo(() => {
-    const gradedCount = combinedGradedRows.length
+    const gradedCount = overallRows.length
     const totalAssignments = assignmentRows.length
     const totalSubmissions = submittedAssignmentRows.length + quizRows.length
     const pendingCount = pendingAssignmentRows.length
@@ -231,7 +261,7 @@ export function useStudentProfileData(studentId: string) {
       }
     }
 
-    const percentages = combinedGradedRows.map((row) => row.percentage)
+    const percentages = overallRows.map((row) => row.percentage)
     const avgPercent = Math.round(percentages.reduce((sum, value) => sum + value, 0) / percentages.length)
     const bestPercent = Math.max(...percentages)
     return {
@@ -242,12 +272,12 @@ export function useStudentProfileData(studentId: string) {
       pendingCount,
       overallGrade: getLetterGrade(avgPercent),
     }
-  }, [assignmentRows.length, combinedGradedRows, pendingAssignmentRows.length, quizRows.length, submittedAssignmentRows.length])
+  }, [assignmentRows.length, overallRows, pendingAssignmentRows.length, quizRows.length, submittedAssignmentRows.length])
 
   const subjectProgress = useMemo(() => {
     const bySubject = new Map<string, { total: number; count: number; pendingAssignments: number }>()
 
-    combinedGradedRows.forEach((row) => {
+    overallRows.forEach((row) => {
       const prev = bySubject.get(row.subject) ?? { total: 0, count: 0, pendingAssignments: 0 }
       bySubject.set(row.subject, {
         total: prev.total + row.percentage,
@@ -277,7 +307,7 @@ export function useStudentProfileData(studentId: string) {
         }
       })
       .sort((left, right) => right.progress - left.progress || left.subject.localeCompare(right.subject))
-  }, [combinedGradedRows, pendingAssignmentRows])
+  }, [overallRows, pendingAssignmentRows])
 
   const scoreHistoryRows = useMemo(() => {
     const performanceRows = performance?.scoreHistory ?? []
